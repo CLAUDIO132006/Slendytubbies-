@@ -1,0 +1,44 @@
+name: Build ELF
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [coop]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: ps2dev/ps2dev:latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Preparar assets (generated.zip o carpeta ps2/generated)
+        shell: sh
+        run: |
+          apk add --no-cache bash unzip >/dev/null 2>&1 || true
+          if [ ! -f ps2/generated/world.bin ]; then
+            if ls generated.zip.0* >/dev/null 2>&1; then cat generated.zip.0* > generated.zip; fi
+            if [ -f generated.zip ]; then
+              rm -rf /tmp/gen && mkdir /tmp/gen && unzip -q generated.zip -d /tmp/gen
+              src=$(dirname "$(find /tmp/gen -name world.bin -path '*generated*' ! -path '*menu*' ! -path '*victory*' | head -n1)")
+              [ -f "$src/world.bin" ] || src=$(dirname "$(find /tmp/gen -name world.bin ! -path '*menu*' ! -path '*victory*' | head -n1)")
+              rm -rf ps2/generated && mkdir -p ps2 && cp -r "$src" ps2/generated
+            fi
+          fi
+          for f in ps2/generated/world.bin ps2/generated/menu/world.bin ps2/generated/victory/world.bin ps2/generated/player_walk.bin; do
+            test -f "$f" || { echo "::error::Falta $f. Sube generated.zip a la raiz del repositorio."; exit 1; }
+          done
+      - name: Compilar
+        shell: bash
+        run: |
+          export PS2DEV="${PS2DEV:-/usr/local/ps2dev}"
+          bash tools/build_ps2.sh
+      - name: Hash
+        run: sha256sum dist/SLENDY.ELF | tee dist/SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SLENDY-ELF
+          path: |
+            dist/SLENDY.ELF
+            dist/SHA256.txt
